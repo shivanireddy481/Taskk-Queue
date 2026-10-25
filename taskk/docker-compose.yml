@@ -1,0 +1,92 @@
+version: '3.8'
+
+# ---------------------------------------------------------------------------
+# Common worker configuration (merged via YAML anchors)
+# ---------------------------------------------------------------------------
+x-worker-base: &worker-base
+  build:
+    context: .
+    target: runtime          # Use the final stage of the multi-stage Dockerfile
+  env_file:
+    - .env.example           # Override by mounting a real .env file in production
+  environment:
+    REDIS_HOST: redis
+    REDIS_PORT: "6379"
+    LOG_FORMAT: json         # Structured logs for log aggregators
+  depends_on:
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+  deploy:
+    resources:
+      limits:
+        cpus: "0.50"
+        memory: 256M
+      reservations:
+        cpus: "0.10"
+        memory: 64M
+
+# ---------------------------------------------------------------------------
+# Services
+# ---------------------------------------------------------------------------
+services:
+
+  # ---------- Redis – Message Broker / Result Store -----------------------
+  redis:
+    image: redis:7-alpine
+    container_name: taskqueue-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    # Persistence: AOF (append-only file) for durability
+    command: redis-server --appendonly yes --appendfsync everysec
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # ---------- Workers ------------------------------------------------------
+  worker-1:
+    <<: *worker-base
+    container_name: taskqueue-worker-1
+    command: python run_worker.py worker-1
+
+  worker-2:
+    <<: *worker-base
+    container_name: taskqueue-worker-2
+    command: python run_worker.py worker-2
+
+  # ---------- Web Dashboard ------------------------------------------------
+  dashboard:
+    <<: *worker-base
+    container_name: taskqueue-dashboard
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      DASHBOARD_HOST: "0.0.0.0"
+      DASHBOARD_PORT: "5000"
+      LOG_FORMAT: json
+    ports:
+      - "5000:5000"
+    command: python dashboard.py
+
+  # ---------- Demo producer (run once then exit) ---------------------------
+  demo:
+    <<: *worker-base
+    container_name: taskqueue-demo
+    command: python demo.py
+    profiles:
+      - demo              # Only starts when: docker compose --profile demo up
+
+volumes:
+  redis_data:
+    driver: local
+

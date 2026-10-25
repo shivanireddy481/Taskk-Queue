@@ -1,0 +1,107 @@
+
+# render.yaml — Deploy the full Task Queue stack on Render
+# Docs: https://render.com/docs/blueprint-spec
+#
+# Services deployed:
+#   1. Redis          (managed)
+#   2. worker-1       (background worker)
+#   3. worker-2       (background worker)
+#   4. dashboard      (Flask web UI)
+
+services:
+
+  # ---------- Worker 1 ---------------------------------------------------
+  - type: worker
+    name: taskq-worker-1
+    runtime: docker
+    dockerfilePath: ./taskk/Dockerfile
+    dockerContext: ./taskk
+    startCommand: python run_worker.py worker-1
+    plan: free
+    envVars:
+      - key: REDIS_HOST
+        fromService:
+          type: redis
+          name: taskq-redis
+          property: host
+      - key: REDIS_PORT
+        fromService:
+          type: redis
+          name: taskq-redis
+          property: port
+      - key: REDIS_PASSWORD
+        fromService:
+          type: redis
+          name: taskq-redis
+          property: password
+      - key: LOG_FORMAT
+        value: json
+      - key: MAX_RETRIES
+        value: "3"
+      - key: TASK_TIMEOUT
+        value: "300"
+
+  # ---------- Worker 2 ---------------------------------------------------
+  - type: worker
+    name: taskq-worker-2
+    runtime: docker
+    dockerfilePath: ./taskk/Dockerfile
+    dockerContext: ./taskk
+    startCommand: python run_worker.py worker-2
+    plan: free
+    envVars:
+      - key: REDIS_HOST
+        fromService:
+          type: redis
+          name: taskq-redis
+          property: host
+      - key: REDIS_PORT
+        fromService:
+          type: redis
+          name: taskq-redis
+          property: port
+      - key: REDIS_PASSWORD
+        fromService:
+          type: redis
+          name: taskq-redis
+          property: password
+      - key: LOG_FORMAT
+        value: json
+
+  # ---------- Dashboard --------------------------------------------------
+  - type: web
+    name: taskq-dashboard
+    runtime: docker
+    dockerfilePath: ./taskk/Dockerfile
+    dockerContext: ./taskk
+    startCommand: python dashboard.py
+    plan: free
+    envVars:
+      - key: REDIS_HOST
+        fromService:
+          type: redis
+          name: taskq-redis
+          property: host
+      - key: REDIS_PORT
+        fromService:
+          type: redis
+          name: taskq-redis
+          property: port
+      - key: REDIS_PASSWORD
+        fromService:
+          type: redis
+          name: taskq-redis
+          property: password
+      - key: DASHBOARD_HOST
+        value: "0.0.0.0"
+      - key: DASHBOARD_PORT
+        value: "10000"       # Render uses port 10000 for web services
+      - key: LOG_FORMAT
+        value: json
+
+# ---------- Redis (managed) --------------------------------------------
+databases:
+  - type: redis
+    name: taskq-redis
+    plan: free
+    ipAllowList: []          # only accessible by services within the same project
